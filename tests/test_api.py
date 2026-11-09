@@ -1,9 +1,11 @@
 import logging
 
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.main import app, items
+from app.tracing import setup_tracing
 
 client = TestClient(app)
 
@@ -115,3 +117,8 @@ def test_metrics_use_route_template_not_raw_path():
     response = client.get("/metrics")
     assert 'path="/items/{item_id}"' in response.text
     assert 'path="/items/99"' not in response.text
+
+
+def test_tracing_stays_off_without_endpoint(monkeypatch):
+    monkeypatch.delenv("OTEL_EXPORTER_OTLP_ENDPOINT", raising=False)
+    setup_tracing(FastAPI())  # must do nothing and raise nothing
