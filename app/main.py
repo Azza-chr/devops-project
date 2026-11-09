@@ -6,8 +6,11 @@ import uuid
 
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
+from opentelemetry import trace
 from prometheus_client import CONTENT_TYPE_LATEST, Counter, Histogram, generate_latest
 from pydantic import BaseModel
+
+from app.tracing import setup_tracing
 
 
 class JsonFormatter(logging.Formatter):
@@ -39,6 +42,8 @@ REQUEST_LATENCY = Histogram(
 )
 
 app = FastAPI(title="DevOps Project API")
+setup_tracing(app)
+tracer = trace.get_tracer("devops-project-api")
 
 items: list[dict] = []
 
@@ -46,6 +51,11 @@ items: list[dict] = []
 class Item(BaseModel):
     name: str
     price: float
+
+
+def current_trace_id():
+    ctx = trace.get_current_span().get_span_context()
+    return format(ctx.trace_id, "032x") if ctx.is_valid else None
 
 
 def record_metrics(request: Request, status: int, duration: float):
@@ -64,6 +74,9 @@ async def observe_requests(request: Request, call_next):
         "method": request.method,
         "path": request.url.path,
     }
+    trace_id = current_trace_id()
+    if trace_id:
+        fields["trace_id"] = trace_id
     try:
         response = await call_next(request)
     except Exception:
@@ -114,9 +127,11 @@ def get_item(item_id: int):
 
 @app.post("/items", status_code=201)
 def create_item(item: Item):
-    new_item = {"id": len(items) + 1, **item.model_dump()}
-    items.append(new_item)
-    return new_item
+    with tracer.start_as_current_span("create_item") as span:
+        span.set_attribute("item.name", item.name)
+        new_item = {"id": len(items) + 1, **item.model_dump()}
+        items.append(new_item)
+        return new_item
 
 
 @app.get("/error")
