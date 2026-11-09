@@ -94,3 +94,24 @@ def test_unhandled_error_returns_500_and_is_logged(caplog):
     assert response.status_code == 500
     assert response.json() == {"detail": "Internal server error"}
     assert any(r.levelname == "ERROR" for r in caplog.records)
+
+
+def test_metrics_endpoint_exposes_request_counter():
+    client.get("/health")
+    response = client.get("/metrics")
+    assert response.status_code == 200
+    assert "http_requests_total" in response.text
+    assert 'path="/health"' in response.text
+
+
+def test_metrics_endpoint_exposes_latency_histogram():
+    client.get("/health")
+    response = client.get("/metrics")
+    assert "http_request_duration_seconds_bucket" in response.text
+
+
+def test_metrics_use_route_template_not_raw_path():
+    client.get("/items/99")
+    response = client.get("/metrics")
+    assert 'path="/items/{item_id}"' in response.text
+    assert 'path="/items/99"' not in response.text
