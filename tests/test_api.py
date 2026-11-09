@@ -1,3 +1,5 @@
+import logging
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -27,13 +29,13 @@ def test_list_items_is_empty_at_start():
 
 
 def test_create_item():
-    response = client.post("/items", json={"name": "book", "price": 13})
+    response = client.post("/items", json={"name": "book", "price": 12.5})
     assert response.status_code == 201
-    assert response.json() == {"id": 1, "name": "book", "price": 13}
+    assert response.json() == {"id": 1, "name": "book", "price": 12.5}
 
 
 def test_created_item_appears_in_list():
-    client.post("/items", json={"name": "book", "price": 13})
+    client.post("/items", json={"name": "book", "price": 12.5})
     response = client.get("/items")
     assert response.status_code == 200
     assert len(response.json()) == 1
@@ -41,14 +43,14 @@ def test_created_item_appears_in_list():
 
 
 def test_ids_increment():
-    first = client.post("/items", json={"name": "book", "price": 13})
+    first = client.post("/items", json={"name": "book", "price": 12.5})
     second = client.post("/items", json={"name": "pen", "price": 2.0})
     assert first.json()["id"] == 1
     assert second.json()["id"] == 2
 
 
 def test_get_item_by_id():
-    client.post("/items", json={"name": "book", "price": 13})
+    client.post("/items", json={"name": "book", "price": 12.5})
     response = client.get("/items/1")
     assert response.status_code == 200
     assert response.json()["name"] == "book"
@@ -68,3 +70,27 @@ def test_create_item_with_invalid_body_returns_422():
 def test_create_item_with_missing_field_returns_422():
     response = client.post("/items", json={"name": "book"})
     assert response.status_code == 422
+
+
+def test_request_is_logged_with_structured_fields(caplog):
+    with caplog.at_level(logging.INFO, logger="api"):
+        client.get("/health")
+    fields = caplog.records[-1].extra_fields
+    assert fields["method"] == "GET"
+    assert fields["path"] == "/health"
+    assert fields["status"] == 200
+    assert "request_id" in fields
+    assert "duration_ms" in fields
+
+
+def test_response_contains_request_id_header():
+    response = client.get("/health")
+    assert "x-request-id" in response.headers
+
+
+def test_unhandled_error_returns_500_and_is_logged(caplog):
+    with caplog.at_level(logging.ERROR, logger="api"):
+        response = client.get("/error")
+    assert response.status_code == 500
+    assert response.json() == {"detail": "Internal server error"}
+    assert any(r.levelname == "ERROR" for r in caplog.records)
